@@ -182,3 +182,67 @@
 | xreg 케이스별 요약 | [`summary_xreg_{a,b,static}.csv`](.) |
 | 7-way 막대 | [`figures/model_comparison_7way_bar.png`](figures/model_comparison_7way_bar.png) |
 | 7-way 품목별 우승 | [`figures/per_crop_winner_7way.png`](figures/per_crop_winner_7way.png) |
+
+---
+
+## 9. 추가 검증: Toto 2.0 313M 비교 실험 (2026-05-25)
+
+> **배경**: 지도교수 조언 — "covariate 12개 갖고도 단변량 ZS 로 마무리하는 것은 위험하다." 이에 따라 native 다변량을 지원하는 최신 foundation model **DataDog Toto 2.0 313M** 을 동일한 49-윈도우 백테스트로 추가 검증함.
+
+### 실험 설계
+
+| 항목 | 값 |
+|---|---|
+| 모델 | Toto 2.0 313M (DataDog, alternating time/variate attention) |
+| 백테스트 | 동일: 49 windows, 46 품목, horizon=3일, context=384일 |
+| 평가 기간 | 2024-03-01 ~ 2026-02-28 |
+| Variants | 4가지 (ZS 단변량, LoRA 단변량, ZS 다변량, LoRA 다변량) |
+| 다변량 채널 | target + 5 known covariate (market_rest, temp_range, sunshine_dur, bok_base_rate, cpi_growth_rate) |
+| LoRA | peft 라이브러리 manual 부착 (r=8, α=16, lr=1e-4, 3 epoch, 2000 samples). Toto 2.0 공식 fine-tuning 미지원 → `forward()` teacher-forcing + pinball loss 직접 구현 |
+| 주 지표 | MAPE (기존 7-way 와 동일) |
+
+### 결과 — Toto 4-way vs TimesFM ZS 기준선
+
+| 순위 | model | MAPE (%) | MASE | RMSE | MAE |
+|---:|---|---:|---:|---:|---:|
+| **기준선** | **★ TimesFM 2.5 ZS (기존 운영)** | **12.64** | **0.806** | **3,365** | **2,995** |
+| 5 | Toto 2.0 ZS 단변량 (A) | 13.01 | 1.308 | 7,667 | 3,302 |
+| 6 | Toto 2.0 ZS 다변량 (C) | 13.01 | 1.308 | 7,667 | 3,302 |
+| 7 | Toto 2.0 LoRA 단변량 (B) | 13.19 | 1.316 | 7,768 | 3,321 |
+| 8 | Toto 2.0 LoRA 다변량 (D) | 13.59 | 1.339 | 7,859 | 3,379 |
+
+> 순위는 기존 7-way 결과 (1~4위: TimesFM ZS / LoRA / xreg+timesfm / xreg+static) 대비 연속 번호. TTM FT (5위, MAPE 15.23%) 는 Toto 모든 variant 보다 낮음.
+
+### 주요 발견
+
+**① TimesFM 2.5 ZS 가 Toto 전 variant 를 MAPE 기준으로 앞섬**
+- 최선 Toto (ZS 단/다변량 모두 MAPE 13.01%)가 TimesFM ZS (12.64%) 보다 +0.37%p 열세.
+- MASE 격차가 더 크다: TimesFM 0.806 vs Toto 최선 1.308 (+0.502). Toto 가 산발적으로 큰 오차를 내는 패턴이 RMSE (7,667 vs 3,365) 에서도 확인됨.
+
+**② 다변량 입력이 ZS 성능을 개선하지 못함**
+- Toto ZS 단변량 ≈ ZS 다변량 (MAPE 13.01%, 소수점 6자리 이후에서만 차이). Toto 의 alternating attention 이 농산물 covariate 관계를 zero-shot 에서 포착하지 못한 결과.
+- 이는 7-way 실험에서 TimesFM xreg (다변량) 가 ZS 를 능가 못 한 결과와 일치하는 패턴.
+
+**③ LoRA fine-tuning 이 오히려 성능을 악화시킴**
+- 단변량: ZS 13.01% → LoRA 13.19% (+0.18%p 악화)
+- 다변량: ZS 13.01% → LoRA 13.59% (+0.58%p 악화)
+- 소규모 학습(2000 samples)에서의 과적합, 및 Toto 내부 asinh 정규화 공간에서 학습하는 구조적 난이도가 원인으로 추정됨.
+
+### 결론
+
+**TimesFM 2.5 ZS 를 운영 모델로 유지.** Toto 2.0 은 alternating time/variate attention 으로 native 다변량을 지원하는 최신 모델임에도 불구하고, 본 농산물 가격 예측 태스크에서 TimesFM 2.5 ZS 를 능가하지 못함.
+
+교수님 지적에 대한 정량 답변: **"native 다변량 모델(Toto ZS 다변량) 도 단변량 TimesFM 보다 열세"** 임을 확인. covariate 추가가 예측력을 자동으로 보장하지 않으며, TimesFM 2.5 의 사전학습이 본 도메인 신호를 이미 효과적으로 흡수하고 있다는 근거가 Toto 실험에 의해 추가로 보강됨.
+
+### 상세 실험 기록
+
+격리 실험 폴더: `tmp/tmp_toto/` (`.gitignore` 적용, 원본 비오염)
+
+| 산출물 | 위치 |
+|---|---|
+| 4-variant 상세 분석 | `tmp/tmp_toto/experiments/4way_toto_ablation.md` |
+| 메트릭 비교 CSV | `tmp/tmp_toto/experiments/metrics_table_toto.csv` |
+| 품목별 MAPE CSV | `tmp/tmp_toto/experiments/per_crop_mape_toto.csv` |
+| MAPE 막대 비교 | `tmp/tmp_toto/experiments/figures/toto_vs_timesfm_bar.png` |
+| 품목별 우승 분포 | `tmp/tmp_toto/experiments/figures/per_crop_winner_toto.png` |
+| 소스코드 | `tmp/tmp_toto/src/` (data_loader, rolling_backtest, lora_trainer 등) |

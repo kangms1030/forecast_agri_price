@@ -107,6 +107,8 @@ TTM-R2 base 는 농산물에 사전학습 없음 + `decoder_mode="mix_channel"` 
 | 결과 재현성 | 학습 단계 없음 → 환경별 결과 편차 없음 |
 
 > **방어 근거**: "covariate 12개 갖고도 단변량 ZS 만 썼다" 는 비판에 대해 5가지 다변량 활용 ablation 으로 정량 검증. [`7way_ablation.md`](7way_ablation.md) 참조.
+>
+> **추가 검증 (2026-05-25)**: native 다변량을 지원하는 DataDog **Toto 2.0 313M** 도 동일 49-윈도우 백테스트로 검증 (ZS 단/다변량, LoRA 단/다변량 4 variants). 모든 variant 가 TimesFM 2.5 ZS (MAPE 12.64%) 에 열세 (Toto 최선 MAPE 13.01%). 상세: [`7way_ablation.md §9`](7way_ablation.md#9-추가-검증-toto-20-313m-비교-실험-2026-05-25).
 
 ---
 
